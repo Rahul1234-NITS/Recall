@@ -57,6 +57,63 @@ export function extractJson(text) {
   return { ok: false, reason: 'The model answer was not valid JSON.' };
 }
 
+/**
+ * Every plausible JSON value in the text, best first:
+ *   1. the normal extraction (whole answer, fences/prose removed)
+ *   2. every complete {...} object found anywhere, longest first. This catches answers where the
+ *      model broke off, apologised, and started a fresh object ("…StudyI apologize… { … }").
+ *   3. the first object with its brackets closed, if the answer was cut off.
+ * The caller tries them in order and keeps the first one that passes validation, so a small
+ * inner object (one flashcard) can never win over the real answer.
+ */
+export function jsonCandidates(text) {
+  if (typeof text !== 'string' || !text.trim()) return [];
+  const out = [];
+  const main = extractJson(text);
+  if (main.ok && !main.truncated) out.push({ value: main.value, truncated: false });
+
+  const objects = [];
+  let starts = 0;
+  for (let i = 0; i < text.length && starts < 80; i++) {
+    if (text[i] !== '{') continue;
+    starts++;
+    const end = matchingBrace(text, i);
+    if (end !== -1) objects.push(text.slice(i, end + 1));
+  }
+  objects.sort((a, b) => b.length - a.length);
+  for (const o of objects) {
+    for (const src of [o, stripTrailingCommas(o)]) {
+      try {
+        out.push({ value: JSON.parse(src), truncated: false });
+        break;
+      } catch {
+        // not valid on its own
+      }
+    }
+  }
+
+  if (main.ok && main.truncated) out.push({ value: main.value, truncated: true });
+  return out;
+}
+
+/** Index of the "}" that closes the "{" at `start`, ignoring braces inside strings; -1 if never closed. */
+function matchingBrace(s, start) {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < s.length; i++) {
+    const ch = s[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+    } else if (ch === '"') inString = true;
+    else if (ch === '{') depth++;
+    else if (ch === '}' && --depth === 0) return i;
+  }
+  return -1;
+}
+
 function stripTrailingCommas(s) {
   return s.replace(/,\s*([}\]])/g, '$1');
 }

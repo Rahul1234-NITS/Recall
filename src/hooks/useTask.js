@@ -11,7 +11,7 @@ const VERY_SLOW_AFTER_MS = 35_000;
 const NO_AUTO_RETRY_AFTER_MS = 40_000;
 
 /** Diagnostics settings, provided once at the top of the app. */
-export const LabContext = createContext({ scenario: 'off', everyAttempt: false });
+export const LabContext = createContext({ scenario: 'off', everyAttempt: false, report: () => {} });
 
 /**
  * One AI request at a time for one tool.
@@ -48,7 +48,7 @@ export function useTask() {
     const current = () => id === runId.current;
     last.current = { task, body, context };
 
-    setState({ status: 'loading', attempt: 1, slow: false, verySlow: false, error: null, warnings: [] });
+    setState({ status: 'loading', attempt: 1, slow: false, verySlow: false, error: null, warnings: [], incomplete: false });
     const slowTimer = setTimeout(() => current() && setState((s) => ({ ...s, slow: true })), SLOW_AFTER_MS);
     const verySlowTimer = setTimeout(() => current() && setState((s) => ({ ...s, verySlow: true })), VERY_SLOW_AFTER_MS);
 
@@ -68,10 +68,15 @@ export function useTask() {
           const parsed = parseTask(task, data?.text, { finishReason: data?.finishReason, context, model: data?.model });
           if (!current()) return null;
           if (parsed.ok) {
-            setState({ status: 'success', attempt, slow: false, error: null, warnings: parsed.warnings });
+            setState({ status: 'success', attempt, slow: false, error: null, warnings: parsed.warnings, incomplete: !!parsed.incomplete });
+            // Technical clean-ups go to the Diagnostics log, not in front of the student.
+            if (parsed.warnings.length || parsed.incomplete || attempt > 1) {
+              labRef.current.report?.({ task, model: data?.model, attempt, incomplete: !!parsed.incomplete, warnings: parsed.warnings });
+            }
             return parsed.value;
           }
           lastError = new ApiError('invalid_output', parsed.reason, { retryable: true, raw: data?.text });
+          labRef.current.report?.({ task, model: data?.model, attempt, failed: parsed.reason });
         } catch (err) {
           if (err?.code === 'aborted') return null;
           lastError = err instanceof ApiError ? err : new ApiError('unknown', String(err?.message || err));

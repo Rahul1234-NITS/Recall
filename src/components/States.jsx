@@ -82,6 +82,19 @@ export function ToolError({ error, onRetry, onBack, backLabel = 'Go back' }) {
   );
 }
 
+/** Shown under a result only when Gemini stopped early and part of the answer is missing. */
+export function IncompleteNote({ onRetry }) {
+  return (
+    <p className="incomplete">
+      Gemini stopped early, so the end of this may be missing.{' '}
+      <button className="link" onClick={onRetry}>
+        Regenerate
+      </button>
+    </p>
+  );
+}
+
+/** Technical clean-up details. Not shown to students; kept for the Diagnostics panel. */
 export function Warnings({ items, onClose }) {
   if (!items?.length) return null;
   return (
@@ -128,8 +141,8 @@ export function ToolFrame({ task, hasData, intro, loadingLabel, onRetry, render 
   if (!hasData) return intro;
   return (
     <>
-      <Warnings items={task.warnings} onClose={task.dismissWarnings} />
       {render()}
+      {task.incomplete && <IncompleteNote onRetry={onRetry} />}
     </>
   );
 }

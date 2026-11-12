@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Sidebar, Brand } from './components/Sidebar.jsx';
 import { NewSpace } from './components/NewSpace.jsx';
 import { SpaceView } from './components/SpaceView.jsx';
@@ -16,6 +16,9 @@ export default function App() {
   const [navOpen, setNavOpen] = useState(false);
   const [diagOpen, setDiagOpen] = useState(false);
   const [lab, setLab] = useState({ scenario: 'off', everyAttempt: false });
+  const [fixLog, setFixLog] = useState([]);
+  const report = useCallback((entry) => setFixLog((l) => [{ ...entry, at: Date.now() }, ...l].slice(0, 30)), []);
+  const labValue = useMemo(() => ({ ...lab, report }), [lab, report]);
 
   useEffect(() => {
     if (spaces.storageFull) toast('Browser storage is full. Delete old spaces or your latest changes won’t be saved.', 'error');
@@ -26,7 +29,7 @@ export default function App() {
   const active = spaces.active;
 
   return (
-    <LabContext.Provider value={lab}>
+    <LabContext.Provider value={labValue}>
       <div className="app">
         <Sidebar
           spaces={spaces.spaces}
@@ -77,7 +80,7 @@ export default function App() {
           </main>
         </div>
 
-        <Diagnostics open={diagOpen} onClose={closeDiag} lab={lab} setLab={setLab} />
+        <Diagnostics open={diagOpen} onClose={closeDiag} lab={lab} setLab={setLab} log={fixLog} onClearLog={() => setFixLog([])} />
       </div>
     </LabContext.Provider>
   );

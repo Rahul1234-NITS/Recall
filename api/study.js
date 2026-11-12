@@ -239,6 +239,7 @@ async function callWithFallback(apiKey, request) {
   const missing = new Set();
   const tried = [];
   let onlyStuck = true;
+  let partial = null; // best incomplete answer, returned only if nothing better arrives
 
   for (let pass = 0; pass < 2; pass++) {
     if (pass > 0) await sleep(2000);
@@ -256,8 +257,16 @@ async function callWithFallback(apiKey, request) {
             `tokens out=${u.candidatesTokenCount ?? '?'} thinking=${u.thoughtsTokenCount ?? 0} (thinking mode: ${thinkingMode.get(model) ?? 'level'})` +
             (tried.length ? ` after ${tried.join('; ')}` : ''),
         );
-        const full = r.blocked ? r : await finishCutAnswer(model, apiKey, request, r, deadline);
-        return { ok: true, model, ...full };
+        if (r.blocked) return { ok: true, model, ...r };
+        const full = await finishCutAnswer(model, apiKey, request, r, deadline);
+        if (full.complete) return { ok: true, model, ...full };
+        // Still incomplete after continuing. Keep it as a last resort and give another model a go.
+        if (!partial || full.text.length > partial.text.length) partial = { model, ...full };
+        missing.add(model); // don't ask this model again in the second pass
+        tried.push(`${model}: incomplete answer`);
+        onlyStuck = false;
+        if (deadline - Date.now() > 45_000) continue;
+        break;
       }
 
       console.error(`[gemini] ${model} ${r.status || 'network'} ${r.message}`.trim());
@@ -274,6 +283,10 @@ async function callWithFallback(apiKey, request) {
     }
   }
 
+  if (partial) {
+    console.warn(`[gemini] returning an incomplete answer from ${partial.model}; ${tried.join('; ')}`);
+    return { ok: true, ...partial };
+  }
   if (missing.size === MODELS.length) {
     return { ok: false, status: 500, code: 'model_not_found', message: `None of the configured models exist: ${MODELS.join(', ')}. Set GEMINI_MODEL.` };
   }
@@ -300,6 +313,47 @@ function isCompleteJson(text) {
   }
 }
 
+/** Index of the "}" closing the "{" at `start` (string-aware), or -1. */
+function matchingBrace(s, start) {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < s.length; i++) {
+    const ch = s[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+    } else if (ch === '"') inString = true;
+    else if (ch === '{') depth++;
+    else if (ch === '}' && --depth === 0) return i;
+  }
+  return -1;
+}
+
+/**
+ * The usable JSON in a model answer, or null. Either the whole answer is one object, or the model
+ * broke off and started a fresh object on a new line (often after "I apologize…"); then that
+ * fresh object is the answer, as long as it is a substantial part of the text.
+ */
+function finalJson(text) {
+  if (isCompleteJson(text)) return text;
+  for (const m of text.matchAll(/(^|\n)[ \t]*(?:```(?:json)?\s*)?\{/g)) {
+    const start = m.index + m[0].length - 1;
+    const end = matchingBrace(text, start);
+    if (end === -1) continue;
+    const obj = text.slice(start, end + 1);
+    if (obj.length < text.length * 0.4) continue;
+    try {
+      JSON.parse(obj);
+      return obj;
+    } catch {
+      // keep looking
+    }
+  }
+  return null;
+}
+
 /** Appends a continuation, dropping fences and any text the model repeated from the end of the first part. */
 function joinContinuation(first, more) {
   let next = more.replace(/^\s*```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/, '');
@@ -324,7 +378,7 @@ function joinContinuation(first, more) {
  */
 async function finishCutAnswer(model, apiKey, request, first, deadline) {
   let { text, finishReason } = first;
-  for (let i = 0; i < MAX_CONTINUATIONS && text.trim() && !isCompleteJson(text); i++) {
+  for (let i = 0; i < MAX_CONTINUATIONS && text.trim() && !finalJson(text); i++) {
     if (deadline - Date.now() < 20_000) break;
     const { responseMimeType: _m, responseSchema: _s, ...generationConfig } = request.generationConfig;
     const more = await callModel(
@@ -343,9 +397,10 @@ async function finishCutAnswer(model, apiKey, request, first, deadline) {
     }
     text = joinContinuation(text, more.text);
     finishReason = more.finishReason;
-    console.log(`[gemini] ${model} continuation ${i + 1}: +${more.text.length} chars, finish=${more.finishReason}, complete=${isCompleteJson(text)}`);
+    console.log(`[gemini] ${model} continuation ${i + 1}: +${more.text.length} chars, finish=${more.finishReason}, complete=${!!finalJson(text)}`);
     if (more.finishReason === 'TIMEOUT') break; // it stalled again; don't keep waiting on the same model
   }
-  if (isCompleteJson(text)) finishReason = 'STOP';
-  return { ...first, text, finishReason };
+  const json = finalJson(text);
+  if (json) return { ...first, text: json, finishReason: 'STOP', complete: true };
+  return { ...first, text, finishReason, complete: false };
 }

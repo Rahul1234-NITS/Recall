@@ -72,5 +72,22 @@ test('cards and quiz go through the deck validator', () => {
 test('unwraps { data: {...} } and flags truncation', () => {
   const r = parseTask('notes', j({ data: { title: 'N', sections: [{ heading: 'A', bullets: ['x'] }] } }), { finishReason: 'MAX_TOKENS' });
   assert.equal(r.ok, true);
-  assert.match(r.warnings[0], /cut off/);
+  assert.equal(r.incomplete, true);
+});
+
+test('model broke off, apologised and started over: the fresh object is used', () => {
+  const fresh = { topic: 'UDP', difficulty: 'medium', flashcards: [{ front: 'What does UDP stand for?', back: 'User Datagram Protocol' }, { front: 'Is UDP reliable?', back: 'No' }] };
+  const text = '{"title": "UDP StudyI apologize for the truncation. Here is the JSON:\n\n' + JSON.stringify(fresh, null, 2);
+  const r = parseTask('cards', text);
+  assert.equal(r.ok, true);
+  assert.equal(r.value.cards.length, 2);
+  assert.equal(r.incomplete, false);
+});
+
+test('a cut-off answer is not replaced by one of its own inner objects', () => {
+  const text = '{"title":"T","cards":[{"front":"a","back":"b"},{"front":"c","back":"d"},{"front":"e","ba';
+  const r = parseTask('cards', text);
+  assert.equal(r.ok, true);
+  assert.equal(r.value.cards.length, 2);
+  assert.equal(r.incomplete, true);
 });

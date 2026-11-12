@@ -5,7 +5,7 @@
 // Same philosophy as parse.js: strict about what reaches the screen, but keep
 // whatever is good instead of throwing the whole answer away.
 
-import { extractJson, normalizeDeck } from './parse.js';
+import { jsonCandidates, normalizeDeck } from './parse.js';
 
 const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
 
@@ -191,22 +191,29 @@ export const NORMALIZERS = {
   quiz: deck('quiz'),
 };
 
-/** Text from the model -> validated value. `context` is passed to normalizers that need it (grade). */
-export function parseTask(task, rawText, { finishReason, context, model } = {}) {
-  const extracted = extractJson(rawText);
-  if (!extracted.ok) return { ok: false, reason: extracted.reason };
+/**
+ * Text from the model -> validated value. Tries each JSON candidate in the text (see
+ * jsonCandidates) and keeps the first that passes this task's validator.
+ * `context` is passed to normalizers that need it (grade).
+ * Returns { ok, value, warnings, incomplete } — `incomplete` means part of the answer is missing.
+ */
+export function parseTask(task, rawText, { finishReason, context } = {}) {
+  const candidates = jsonCandidates(rawText);
+  if (!candidates.length) {
+    return { ok: false, reason: rawText?.trim() ? 'The model answer was not valid JSON.' : 'The model returned nothing.' };
+  }
   const normalizer = NORMALIZERS[task];
-  const value = unwrap(extracted.value);
-  if (!isObj(value) && !(Array.isArray(value) && (task === 'cards' || task === 'quiz'))) {
-    return { ok: false, reason: 'The model answer had the wrong shape.' };
+  let reason = 'The model answer had the wrong shape.';
+  for (const c of candidates) {
+    const value = unwrap(c.value);
+    if (!isObj(value) && !(Array.isArray(value) && (task === 'cards' || task === 'quiz'))) continue;
+    const result = normalizer(value, context ?? {});
+    if (!result.ok) {
+      reason = result.reason;
+      continue;
+    }
+    result.incomplete = c.truncated || finishReason === 'MAX_TOKENS' || finishReason === 'TIMEOUT';
+    return result;
   }
-  const result = normalizer(value, context ?? {});
-  if (result.ok && (extracted.truncated || finishReason === 'MAX_TOKENS' || finishReason === 'TIMEOUT')) {
-    const why = finishReason === 'MAX_TOKENS' ? 'it hit the length limit' : finishReason === 'TIMEOUT' ? 'Gemini stopped sending' : 'it was incomplete';
-    result.warnings = [
-      `The answer was cut off (${why}${model ? `, ${model}` : ''}). Showing everything that was complete. Regenerate to try again.`,
-      ...result.warnings,
-    ];
-  }
-  return result;
+  return { ok: false, reason };
 }

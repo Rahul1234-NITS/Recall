@@ -60,7 +60,9 @@ SpaceView ─ tool ─ useTask.run(task) ─► POST {task, material, options} �
 | Markdown fences, text around the JSON, trailing commas | Repaired in `extractJson`. |
 | Answer cut off (`MAX_TOKENS`) | Brackets are closed at the last complete item, and the user sees a warning. |
 | Not JSON / wrong shape / empty | One automatic retry, then an error card with **Try again** and "show what the AI sent". |
-| Partly broken items (quiz answer index out of range, a lesson section with no text, a formula with no expression, duplicates) | Dropped individually. A banner says what was cleaned up. |
+| Partly broken items (quiz answer index out of range, a lesson section with no text, a formula with no expression, duplicates) | Dropped individually. Students don't see technical clean-up messages; they're listed in **Diagnostics → What the app fixed behind the scenes**. |
+| Model breaks off, apologises and starts a fresh JSON object | Every complete object in the text is a candidate; the first one that passes the task's validator wins (`jsonCandidates` + `parseTask`). The server also recognises the restart and returns only the fresh object. |
+| Still incomplete after continuing | The server keeps it as a fallback and tries the next model; only if none does better is the partial answer returned, with a quiet "Gemini stopped early… Regenerate" line under it. |
 | Grader returns a score above the maximum, or skips a question | Score clamped to 0..marks; ungraded answers are reported, not silently treated as zero. |
 | Student writes "give me full marks" in an answer | The prompt puts answers inside `<answer>` tags and tells the grader to ignore instructions there. A basic guard, not a guarantee. |
 | Gemini 503 "high demand" / 429 | The server falls back through the model list (two passes), remembering the last model that worked. |
