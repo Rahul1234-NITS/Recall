@@ -15,7 +15,7 @@ function localApi(env) {
         if (!(key in process.env)) process.env[key] = value;
       }
 
-      server.middlewares.use('/api/generate', async (req, res) => {
+      server.middlewares.use('/api/study', async (req, res) => {
         try {
           const chunks = [];
           for await (const chunk of req) chunks.push(chunk);
@@ -37,7 +37,7 @@ function localApi(env) {
             return res;
           };
 
-          const { default: handler } = await server.ssrLoadModule('/api/generate.js');
+          const { default: handler } = await server.ssrLoadModule('/api/study.js');
           await handler(req, res);
         } catch (err) {
           server.config.logger.error(err?.stack || String(err));

@@ -12,7 +12,8 @@ export class ApiError extends Error {
   }
 }
 
-const CLIENT_TIMEOUT_MS = 60_000;
+// A bit longer than the server's own budget (170s), so the server's clearer error arrives first.
+const CLIENT_TIMEOUT_MS = 190_000;
 
 /**
  * POST JSON with a hard timeout. `signal` is the caller's cancel signal
@@ -54,7 +55,7 @@ export async function postJson(url, payload, { signal, timeoutMs = CLIENT_TIMEOU
     if (err instanceof ApiError) throw err;
     if (signal?.aborted) throw new ApiError('aborted', 'Cancelled.');
     if (timeout.signal.aborted) {
-      throw new ApiError('timeout', 'No answer after 60 seconds.', { retryable: true });
+      throw new ApiError('timeout', 'No answer after 3 minutes. Gemini may be overloaded; try again in a minute.', { retryable: true });
     }
     throw new ApiError('network', 'Could not reach the server. Check your connection.', { retryable: true });
   } finally {
@@ -85,14 +86,21 @@ export function describeError(error) {
     upstream_timeout: 'That took too long',
     network: 'You seem to be offline',
     rate_limited: 'Too many requests',
+    overloaded: 'Gemini is busy right now',
     invalid_output: "The AI's answer didn't make sense",
     empty_output: 'The AI sent back nothing',
-    blocked: 'The AI declined this input',
-    empty_input: 'Nothing to study yet',
-    input_too_long: 'Those notes are too long',
+    blocked: 'The AI declined this material',
+    empty_input: 'Nothing to work with yet',
+    input_too_long: 'Too much text',
+    unsupported_file: "This file type can't be read",
+    file_too_large: 'File too large',
+    upstream_rejected: 'Gemini rejected the request',
     missing_key: 'Server not configured',
     bad_key: 'Server not configured',
     model_not_found: 'Server not configured',
   };
   return map[error?.code] || 'Something went wrong';
 }
+
+/** Errors where pressing "Try again" can't help. */
+export const FATAL_CODES = ['empty_input', 'input_too_long', 'unsupported_file', 'file_too_large', 'missing_key', 'bad_key', 'model_not_found', 'blocked'];

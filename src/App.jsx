@@ -1,117 +1,84 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Composer } from './components/Composer.jsx';
-import { StudyView } from './components/StudyView.jsx';
-import { SessionDrawer } from './components/SessionDrawer.jsx';
-import { FailureLab } from './components/FailureLab.jsx';
-import { EmptyState, ErrorState, LoadingState, Warnings } from './components/States.jsx';
-import { useGenerateDeck } from './hooks/useGenerateDeck.js';
-import { useSessions } from './hooks/useSessions.js';
+import { useCallback, useEffect, useState } from 'react';
+import { Sidebar, Brand } from './components/Sidebar.jsx';
+import { NewSpace } from './components/NewSpace.jsx';
+import { SpaceView } from './components/SpaceView.jsx';
+import { Diagnostics } from './components/Diagnostics.jsx';
+import { Icon } from './components/Icon.jsx';
+import { useToast } from './components/ui.jsx';
+import { LabContext } from './hooks/useTask.js';
+import { useSpaces } from './hooks/useSpaces.js';
 import { useTheme } from './hooks/useTheme.js';
 
 export default function App() {
   const [theme, toggleTheme] = useTheme();
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [scenario, setScenario] = useState('off');
-  const [everyAttempt, setEveryAttempt] = useState(false);
-  const [warnings, setWarnings] = useState([]);
+  const spaces = useSpaces();
+  const toast = useToast();
+  const [navOpen, setNavOpen] = useState(false);
+  const [diagOpen, setDiagOpen] = useState(false);
+  const [lab, setLab] = useState({ scenario: 'off', everyAttempt: false });
 
-  const closeDrawer = useCallback(() => setDrawerOpen(false), []);
-
-  const sessions = useSessions();
-  const gen = useGenerateDeck({ scenario, everyAttempt });
-
-  // A successful generation becomes a saved session. `result` is a fresh object
-  // per success, so this runs exactly once per generated deck.
-  const handled = useRef(null);
-  const { add } = sessions;
   useEffect(() => {
-    if (gen.status === 'success' && gen.result && handled.current !== gen.result) {
-      handled.current = gen.result;
-      add(gen.result);
-      setWarnings(gen.result.warnings);
-    }
-  }, [gen.status, gen.result, add]);
+    if (spaces.storageFull) toast('Browser storage is full. Delete old spaces or your latest changes won’t be saved.', 'error');
+  }, [spaces.storageFull, toast]);
 
-  const outputRef = useRef(null);
-  const onSubmit = useCallback(
-    (request) => {
-      setWarnings([]);
-      gen.generate(request);
-      // On phones the result is below the form; bring it into view.
-      if (window.matchMedia('(max-width: 860px)').matches) {
-        requestAnimationFrame(() => outputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
-      }
-    },
-    [gen.generate], // eslint-disable-line react-hooks/exhaustive-deps
-  );
-
-  const busy = gen.status === 'loading';
-  const active = sessions.active;
-
-  let body;
-  if (busy) {
-    body = <LoadingState attempt={gen.attempt} maxAttempts={gen.maxAttempts} slow={gen.slow} onCancel={gen.cancel} />;
-  } else if (gen.status === 'error') {
-    body = (
-      <ErrorState
-        error={gen.error}
-        canRetry={Boolean(gen.lastRequest) && !['empty_input', 'input_too_long', 'missing_key', 'bad_key', 'model_not_found'].includes(gen.error?.code)}
-        onRetry={gen.retry}
-        onDismiss={gen.dismiss}
-        hasPrevious={Boolean(active)}
-      />
-    );
-  } else if (active) {
-    body = (
-      <>
-        <Warnings items={warnings} onClose={() => setWarnings([])} />
-        <StudyView key={active.id} session={active} onProgress={(patch) => sessions.updateProgress(active.id, patch)} />
-      </>
-    );
-  } else {
-    body = <EmptyState />;
-  }
+  const closeNav = useCallback(() => setNavOpen(false), []);
+  const closeDiag = useCallback(() => setDiagOpen(false), []);
+  const active = spaces.active;
 
   return (
-    <div className="app">
-      <header className="topbar">
-        <a className="brand" href="/" onClick={(e) => e.preventDefault()}>
-          <span className="brand__mark" aria-hidden="true">R</span>
-          Recall
-        </a>
-        <nav className="topbar__actions">
-          <button className="btn btn--ghost btn--small" onClick={() => setDrawerOpen(true)}>
-            Saved <span className="count">{sessions.sessions.length}</span>
-          </button>
-          <button className="icon-btn" onClick={toggleTheme} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>
-            {theme === 'dark' ? '☀' : '☾'}
-          </button>
-        </nav>
-      </header>
+    <LabContext.Provider value={lab}>
+      <div className="app">
+        <Sidebar
+          spaces={spaces.spaces}
+          activeId={spaces.activeId}
+          onOpen={(id) => {
+            spaces.open(id);
+            closeNav();
+          }}
+          onNew={() => {
+            spaces.open(null);
+            closeNav();
+          }}
+          onDelete={spaces.remove}
+          theme={theme}
+          onToggleTheme={toggleTheme}
+          onDiagnostics={() => {
+            setDiagOpen(true);
+            closeNav();
+          }}
+          labOn={lab.scenario !== 'off'}
+          open={navOpen}
+          onClose={closeNav}
+        />
 
-      <main className="layout">
-        <div className="layout__input">
-          <Composer busy={busy} onSubmit={onSubmit} onCancel={gen.cancel} />
-          <FailureLab scenario={scenario} setScenario={setScenario} everyAttempt={everyAttempt} setEveryAttempt={setEveryAttempt} />
-        </div>
-        <div className="layout__output" ref={outputRef}>
-          {body}
-        </div>
-      </main>
+        <div className="main">
+          <header className="mobilebar">
+            <button className="icon-btn icon-btn--bare" onClick={() => setNavOpen(true)} aria-label="Open menu">
+              <Icon name="menu" />
+            </button>
+            <Brand />
+            <button className="icon-btn icon-btn--bare" onClick={toggleTheme} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>
+              <Icon name={theme === 'dark' ? 'sun' : 'moon'} />
+            </button>
+          </header>
 
-      <SessionDrawer
-        open={drawerOpen}
-        sessions={sessions.sessions}
-        activeId={sessions.activeId}
-        onPick={(id) => {
-          sessions.setActiveId(id);
-          setWarnings([]);
-          if (gen.status === 'error') gen.dismiss();
-          closeDrawer();
-        }}
-        onDelete={sessions.remove}
-        onClose={closeDrawer}
-      />
-    </div>
+          {lab.scenario !== 'off' && (
+            <button className="labflag" onClick={() => setDiagOpen(true)}>
+              <Icon name="wrench" size={15} /> Diagnostics is faking “{lab.scenario}” responses. Change it
+            </button>
+          )}
+
+          <main className="content">
+            {active ? (
+              <SpaceView key={active.id} space={active} update={spaces.update} />
+            ) : (
+              <NewSpace onCreate={spaces.add} hasSpaces={spaces.spaces.length > 0} />
+            )}
+          </main>
+        </div>
+
+        <Diagnostics open={diagOpen} onClose={closeDiag} lab={lab} setLab={setLab} />
+      </div>
+    </LabContext.Provider>
   );
 }

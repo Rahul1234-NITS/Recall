@@ -71,7 +71,7 @@ export function Flashcards({ cards, known, onKnownChange, active }) {
   return (
     <div className="cards">
       <div className="toolbar">
-        <div className="segmented segmented--small" role="radiogroup" aria-label="Which cards">
+        <div className="seg seg--sm" role="radiogroup" aria-label="Which cards">
           <button role="radio" aria-checked={filter === 'all'} className={filter === 'all' ? 'is-on' : ''} onClick={() => { setFilter('all'); setPos(0); setFlipped(false); }}>
             All {cards.length}
           </button>
@@ -79,7 +79,7 @@ export function Flashcards({ cards, known, onKnownChange, active }) {
             Still learning {cards.length - knownCount}
           </button>
         </div>
-        <button className="btn btn--ghost btn--small" onClick={shuffle}>
+        <button className="btn btn--quiet btn--sm" onClick={shuffle}>
           Shuffle
         </button>
       </div>
@@ -96,7 +96,7 @@ export function Flashcards({ cards, known, onKnownChange, active }) {
             <button className="btn btn--primary" onClick={() => setFilter('all')}>
               Review all
             </button>
-            <button className="btn btn--ghost" onClick={() => onKnownChange([])}>
+            <button className="btn btn--quiet" onClick={() => onKnownChange([])}>
               Reset progress
             </button>
           </div>
@@ -135,7 +135,7 @@ export function Flashcards({ cards, known, onKnownChange, active }) {
           </div>
 
           {card.hint && !showHint && !flipped && (
-            <button className="linkish hint-btn" onClick={() => setShowHint(true)}>
+            <button className="link hint-btn" onClick={() => setShowHint(true)}>
               Show hint <kbd>H</kbd>
             </button>
           )}

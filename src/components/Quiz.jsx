@@ -133,7 +133,7 @@ export function Quiz({ questions, onRoundFinished, active }) {
               Re-test {wrongIds.length} wrong
             </button>
           )}
-          <button className="btn btn--ghost" onClick={() => dispatch({ type: 'restart', questions })}>
+          <button className="btn btn--quiet" onClick={() => dispatch({ type: 'restart', questions })}>
             Restart full quiz
           </button>
         </div>
